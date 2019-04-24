@@ -1,0 +1,80 @@
+Решение на 2-ро домашно по Операционни системи практикум
+
+1. Инсталиране на sox
+	$ sudo apt install sox
+2. Създаване на shell script
+	$ touch 62143.sh
+3. Промяна на правата на 62143.sh
+	$ chmod 775 62143.sh
+4. Писане на скрипта
+	$ vi 62143.sh
+
+#Отбелязване, че ще се изпълнява от баш
+#!/bin/bash
+
+#Проверка дали са подадени достатъчно аргументи, ако не са се извежда подходящо съобщение
+if [[ $# -ne 4 ]] 
+then
+    echo "Not enough arguments passed"
+else
+    lastwavend=0 #променлива за последно отрязаното време на аудио файла
+    lfrom=0 #променлива за последно отрязания ред от екг файла
+    mkdir -p $4 #създаване на директорията в коятао ще се записват файловете
+    ticks=$(grep -oP '<tick>(.*)</tick>' $2) #променлива държаща само тиковете на екг файла
+    #Изчисляване на дължината в милисекунди на един тик
+    ticktime=$((1000/$(grep -oP '<SamplingRate>(.*)</SamplingRate>' $2 |cut -d ">" -f 2 | cut -d " " -f 1)))
+    #променлива съдържаща началото на екг - час
+    egstartt=$(grep -oP '<StartRecordingTime>(.*)</StartRecordingTime>' $2 |cut -d ">" -f 2 | cut -d "<" -f 1)
+    #променлива съдържаща началото на екг -дата
+    egstartd=$(grep -oP '<StartRecordingDate>(.*)</StartRecordingDate>' $2 |cut -d ">" -f 2 | cut -d "<" -f 1)
+    #променлива съдържаща началото на екг - дата час
+    egstartdt=$egstartd" "$egstartt
+    #преобразуване на времто за начало на екг във уних секунди спрямо времевата зона
+    if [[ $EEG_TZ == " " ]]
+    then
+	egstartu=$(date --date="TZ=\"UTC\" $egstartdt" +"%s")
+    else
+	egstartu=$(date --date="TZ=\"$EEG_TZ\" $egstartdt" +"%s")
+    fi
+    #четене на timeline ред по ред
+    cat $1 | while read p; do
+	#променливи за името на стимула, началото и края му
+        stimul=$(echo "$p" | cut -d ' ' -f1)
+	start=$(echo "$p" | cut -d ' ' -f2)
+	end=$(echo "$p" | cut -d ' ' -f3)
+	#променлива за дължината на стимула в секунди
+	lengthsec=$(echo "($end-$start)" |bc)
+	#променлива за дължината на стимула в милисекунди
+	lengthm=$(echo "($end-$start)*100000/1" |bc)
+	#преобразуване на началот и края на стимула в секунди
+	start=$(echo "($start+0.5)/1" |bc)
+	end=$(echo "($end+0.5)/1" |bc)
+	#проверка за дължината на стимула да е повече от 0.2секунди
+	if [[ $lengthm -lt 200 ]]
+	then
+	echo "Stimul length less than 0.2s"
+	else
+	    #проверка за началото на стимула да е след началото на екг и аудио файла
+	    if [[ start -ge egstartu ]] && [[ $stimul != "beep" ]]
+	    then
+		#изчисляване на редовете от тиковете които да бъдат взети
+	        tocut=$((lengthm/ticktime))
+		lto=$(($lfrom + $tocut))
+		echo "$ticks" | head -n $lto | tail -n $lfrom > "$4/${stimul}_eeg.xml"
+		lfrom=$lto
+		#изчисляване на секундите от аудио файла които да бъдат взети
+		cuttime=$(echo "$lengthsec+$lastwavend" | bc)
+		outfilew=$(echo "$4/${stimul}_lar.wav")
+		sox $3 $outfilew trim $lastwavend $cutttime
+		lastwavend=$cuttime
+	    else
+		echo "stimul outside time boundaries"
+	    fi
+	fi
+    done
+fi
+
+5. Тестване на решението
+   $ ./62143.sh timetable.log eeg.xml larynx.wav ~/output_dir
+
+	
